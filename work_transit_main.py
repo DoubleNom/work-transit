@@ -1,6 +1,8 @@
 import datetime
 import os.path
 import pickle
+import sys
+
 import googlemaps
 import argparse
 import json
@@ -13,60 +15,66 @@ class ApiKeys:
 
 
 # Init logger
-log = logging.getLogger("WorkTransit")
-log.addHandler(logging.FileHandler("logs"))
-log.setLevel(logging.INFO)
-log.info("started")
+logger = logging.getLogger("WorkTransit")
+logger.setLevel(logging.DEBUG)
+logSh = logging.StreamHandler(stream=sys.stdout)
+logSh.setLevel(logging.ERROR)
+logger.addHandler(logSh)
 
 # Load parameters
 parser = argparse.ArgumentParser()
 parser.add_argument('--from', dest="dest", type=str, required=True)
 parser.add_argument('--to', dest="src", type=str, required=True)
-parser.add_argument('--start', type=str, required=True)
-parser.add_argument('--stop', type=str, required=True)
-parser.add_argument('--period', type=str, required=True)
-parser.add_argument('--output-folder', dest="output_path", type=str, required=True)
+parser.add_argument('--start', type=str)
+parser.add_argument('--stop', type=str)
+parser.add_argument('--period', type=str)
+parser.add_argument('--output-folder', dest="output_path", type=str)
 args = parser.parse_args()
-log.info(f"Parameters {args}")
+
+# Handle output-folder immediately
+default_output_folder = "output"
+output_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), default_output_folder)
+if args.output_path and len(args.output_path) != 0:
+    output_path = os.path.abspath(args.output_path)
+
+os.makedirs(output_path, exist_ok=True)
+logFmt = logging.Formatter(fmt="%(asctime)s - [%(levelname)s] : %(message)s", datefmt="%Y/%m/%d %H:%M:%S")
+logFh = logging.FileHandler(os.path.join(output_path, "logs.txt"))
+logFh.setFormatter(logFmt)
+logFh.setLevel(logging.DEBUG)
+logger.addHandler(logFh)
+
+logger.info(f"Parameters {args}")
 
 # Check parameters
 has_error = False
 if len(args.dest) == 0:
-    log.error(f"Invalid args, `from` is empty: {args.dest}")
+    logger.error(f"Invalid args, `from` is empty: {args.dest}")
     has_error = True
 if len(args.src) == 0:
-    log.error(f"Invalid args, `to` is empty: {args.src}")
+    logger.error(f"Invalid args, `to` is empty: {args.src}")
     has_error = True
 
 time_format = "%H:%M"
 time_now = datetime.datetime.now()
-if len(args.start) == 0:
-    log.error(f"Invalid args, `start` is empty: {args.start}")
-    has_error = True
-else:
+if args.start:
     start = datetime.datetime.strptime(args.start, time_format)
     time_start = datetime.datetime(time_now.year, time_now.month, time_now.day, start.hour, start.minute)
     if time_start > time_now:
-        log.debug(f"Outside working hours, exiting")
+        logger.debug(f"Outside working hours, exiting")
         exit(0)
 
-if len(args.stop) == 0:
-    log.error(f"invalid args, `stop` is empty: {args.stop}")
-    has_error = True
-else:
+if args.stop:
     start = datetime.datetime.strptime(args.stop, time_format)
     time_stop = datetime.datetime(time_now.year, time_now.month, time_now.day, start.hour, start.minute)
     if time_stop < time_now:
-        log.debug(f"Outside working hours, exiting")
+        logger.debug(f"Outside working hours, exiting")
         exit(0)
 
 pickle_rawname = args.dest + args.src
-pickle_filename = hashlib.sha1(pickle_rawname.encode("utf-8")).hexdigest()
+pickle_filename = f"{hashlib.sha1(pickle_rawname.encode('utf-8')).hexdigest()}.pkl"
 pickle_path = os.path.abspath(os.path.join(os.curdir, pickle_filename))
-if len(args.period) == 0:
-    log.error(f"invalid args, `period` is empty: {args.period}")
-    has_error = True
-else:
+if args.period:
     period = datetime.datetime.strptime(args.period, '%M:%S')
     time_last = datetime.datetime.fromtimestamp(0)
     if os.path.exists(pickle_path):
@@ -75,7 +83,7 @@ else:
     time_span = time_now - time_last
     exhausted = time_span < datetime.timedelta(seconds=period.second, minutes=period.minute)
     if exhausted:
-        log.debug(f"Still in processed period, exiting")
+        logger.debug(f"Still in processed period, exiting")
         exit(0)
 
 if has_error:
@@ -95,14 +103,13 @@ with open('keys.json', 'r') as f:
 try:
     gmaps = googlemaps.Client(key=keys.maps)
 except ValueError as e:
-    log.error(e)
+    logger.error(e)
     exit(-1)
 
-os.makedirs(args.output_path, exist_ok=True)
 output_rawname = args.dest + args.src + str(time_now)
 output_filename = hashlib.sha1(output_rawname.encode("utf-8")).hexdigest()
-output_path = os.path.abspath(os.path.join(args.output_path, output_filename + ".json"))
-with open(output_path, "w") as output:
+output_file_path = os.path.join(output_path, f"{output_filename}.json")
+with open(output_file_path, "w") as output:
     routes = dict()
     traffic_models = ["best_guess", "optimistic", "pessimistic"]
     for traffic_model in traffic_models:
@@ -113,3 +120,5 @@ with open(output_path, "w") as output:
 
 with open(pickle_path, 'wb+') as f:
     pickle.dump(datetime.datetime.now(), f)
+
+logger.info("Success, exiting")
