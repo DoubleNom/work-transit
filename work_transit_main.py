@@ -32,8 +32,9 @@ parser.add_argument('--output-folder', dest="output_path", type=str)
 args = parser.parse_args()
 
 # Handle output-folder immediately
+project_dir = os.path.dirname(os.path.realpath(__file__))
 default_output_folder = "output"
-output_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), default_output_folder)
+output_path = os.path.join(project_dir, default_output_folder)
 if args.output_path and len(args.output_path) != 0:
     output_path = os.path.abspath(args.output_path)
 
@@ -91,7 +92,7 @@ if has_error:
 
 # Load API Keys
 keys = ApiKeys()
-with open('keys.json', 'r') as f:
+with open(os.path.join(project_dir, 'keys.json'), 'r') as f:
     jsonObj = json.load(f)
     keys.maps = jsonObj["google-maps"]
     if not isinstance(keys.maps, str):
